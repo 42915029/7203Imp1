@@ -1,0 +1,104 @@
+%% SETUP_LAB_HELI_3D
+%
+% This script sets the model parameters and designs a PID position
+% controller using LQR for the Quanser 3-DOF Helicopter plant.
+%
+% Copyright (C) 2007 Quanser Consulting Inc.
+% Quanser Consulting Inc.
+%
+clear all;
+
+%% ############### USER-DEFINED 3-DOF HELI CONFIGURATION ###############
+% Amplifier Gain used for yaw and pitch axes: set VoltPAQ to 3. 
+% When using UPM set K_AMP to 5.
+K_AMP = 5;
+% Amplifier Maximum Output Voltage (V)
+VMAX_AMP = 24;
+% Digital-to-Analog Maximum Voltage (V): set to 10 for Q4/Q8 cards
+VMAX_DAC = 10;
+% Initial elvation angle (rad)
+elev_0 = -27.5*pi/180;
+
+
+%% ############### USER-DEFINED DESIRED COMMAND SETTINGS ###############
+% Note: These limits are imposed on both the program and joystick commands.
+% Elevation position command limit (deg)
+CMD_ELEV_POS_LIMIT_LOWER = elev_0*180/pi;
+CMD_ELEV_POS_LIMIT_UPPER = -CMD_ELEV_POS_LIMIT_LOWER;
+% Maximum Rate of Desired Position (rad/s)
+CMD_RATE_LIMIT = 45.0 * pi / 180;
+
+
+%% ############### USER-DEFINED JOYSTICK SETTINGS ###############
+% Joystick input X sensitivity used for travel (deg/s/V)
+K_JOYSTICK_X = 40.0;
+% Joystick input Y sensitivity used for elevation (deg/s/V)
+K_JOYSTICK_Y = 45.0;
+
+
+%% ############### MODELING ###############
+% These parameters are used for model representation and controller design.
+[ Kf, m_h, m_w, m_f, m_b, Lh, La, Lw, g, K_EC_T, K_EC_P, K_EC_E ] = ...
+    setup_heli_3d_configuration();
+
+% For the following state vector: X = [ elevation; pitch; travel, elev_dot, 
+% pitch_dot, travel_dot]
+% Initialization the state-Space representation of the open-loop System
+HELI3D_ABCD_eqns;
+
+Ki=0.1;
+Kr=1;
+
+% Calculate and place State-Feedback poles
+rSF = -2;
+% a1 = 18;
+% a2 = 36;
+% a3 = 52;
+% Psf = [...
+%     rSF*cosd(a1)+i*rSF*sind(a1);
+%     rSF*cosd(a1)-i*rSF*sind(a1);
+%     rSF*cosd(a2)+i*rSF*sind(a2);
+%     rSF*cosd(a2)-i*rSF*sind(a2);
+%     rSF*cosd(a3)+i*rSF*sind(a3);
+%     rSF*cosd(a3)-i*rSF*sind(a3)];
+% K = place(A,B,Psf);
+
+sys = ss(A, B, C, D);
+
+q1 = 100; %elev
+q2 = 1; %pitch
+q3 = 50; %travel
+q4 = 0; %elev dot
+q5 = 0; %pitch dot
+q6 = 0; %travel dot
+
+Q = [...
+    q1 0 0 0 0 0;
+    0 q2 0 0 0 0;
+    0 0 q3 0 0 0;
+    0 0 0 q4 0 0;
+    0 0 0 0 q5 0;
+    0 0 0 0 0 q6];
+
+R = [.25 0; 0 .25];
+[K,S,E] = lqr(sys,Q,R);
+
+% Calculate and place Observer poles
+rOB1 = 5*rSF;
+rOB2 = 1.1*rOB1;
+rOB3 = 0.9*rOB1;
+a1 = 45;
+a2 = 45;
+a3 = 45;
+Pob = [...
+    rOB1*cosd(a1)+i*rOB1*sind(a1);
+    rOB1*cosd(a1)-i*rOB1*sind(a1);
+    rOB2*cosd(a2)+i*rOB2*sind(a2);
+    rOB2*cosd(a2)-i*rOB2*sind(a2);
+    rOB3*cosd(a3)+i*rOB3*sind(a3);
+    rOB3*cosd(a3)-i*rOB3*sind(a3)];
+L = place(A',C',Pob);
+
+% Add this bias onto U when K and L have been determined
+Vo = -1/2*g*(-m_w*Lw + m_f*La + m_b*La ) / (La*Kf);
+
